@@ -1,0 +1,95 @@
+# Módulos
+
+```{r message = FALSE, warning = FALSE}
+library(tidyverse)
+library(skimr)
+library(reshape2)
+```
+
+# Análisis Exploratorio de los Datos
+Primero, cargamos los datos y observamos las primeras filas:
+
+```{r}
+df <- read.csv("cancer_gene_expression_dataset.csv")
+head(df)
+```
+
+Podemos prescindir de la columna `Patient_ID`, ya que no aporta información relevante (es el índice + 1).
+
+```{r}
+df <- df %>% select(-Patient_ID)
+head(df)
+```
+
+## Estructura general
+A continuación, comprobamos el tipo de los datos de cada variable:
+
+```{r}
+df |> skim() |> summary()
+```
+
+Tenemos 100 registros con 50 variables numéricas. Veamos algunos estadísticos descriptivos:
+
+```{r}
+df |> skim() |> yank("numeric") |> select(-c(complete_rate, hist))
+```
+
+Podemos ver la media, la desviación estándar, el mínimo, el máximo y los cuartiles, incluyendo la mediana. Comprobemos si hay registros duplicados:
+
+```{r}
+duplic <- duplicated(df) |> sum()
+paste0("Registros duplicados: ", duplic) |> print()
+```
+
+Afortunadamente, no hay valores nulos ni registros duplicados. Además, todos los datos están en formato numérico, así que no es necesario limpiarlos.
+
+## Distribución
+Podemos visualizar la distribución de los datos de cada variable con histogramas:
+
+```{r fig.width = 12, fig.height = 10}
+df |> 
+    pivot_longer(
+        cols = everything(), 
+        values_to = "gene_expression", 
+        names_to = "gene"
+        ) |>
+    ggplot(aes(x = gene_expression))+
+    geom_histogram(color = "black")+
+    facet_wrap(~gene, scales = "free")+
+    theme_minimal()
+```
+
+También podemos ver los diagramas de cajas correspondientes para inspeccionar visualmente los cuartiles y el rango. Así, podemos detectar la presencia de valores anómalos:
+
+```{r fig.width = 12, fig.height = 8}
+df |> 
+    pivot_longer(
+        cols = everything(), 
+        values_to = "gene_expression", 
+        names_to = "gene"
+        ) |>
+    ggplot(aes(x = gene_expression))+
+    geom_boxplot(color = "black", outliers = TRUE, orientation = "y")+
+    facet_wrap(~gene, scales = "free")+
+    theme_minimal()
+```
+
+Se observa una distribución similar para todas las variables, aproximadamente bimodal. Unas pocas contienen valores anómalos. Por ello, antes de implementar el algoritmo de agrupación correspondiente, será necesario escalar los datos utilizando un estimador que sea robusto con los valores anómalos.
+
+## Multicolinealidad
+Para comprobar si hay variables colineales entre sí, podemos obtener la matriz de correlaciones, que calcula los coeficientes de correlación para cada par de variables posible, y representarla visualmente con un mapa de calor:
+
+```{r fig.width = 12, fig.height = 8}
+corr_matrix <- cor(df) |> melt()
+
+ggplot(corr_matrix, aes(x = Var2, y = Var1, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = "blue", mid = "white", high = "red",
+    midpoint = mean(corr_matrix$value),
+    limits = c(-1, 1)
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
