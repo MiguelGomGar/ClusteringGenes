@@ -1,4 +1,20 @@
-# Módulos
+---
+title: "Análisis Exploratorio"
+output:
+  pdf_document: default
+---
+# Introducción
+El objetivo de este trabajo es llevar a cabo un análisis exploratorio de los datos contenidos en el archivo `pacientes_cancer.csv`. Para ello, será necesario realizar las siguientes tareas:
+
+1. Entender qué representa cada variable y **eliminar las columnas innecesarias**.
+2. **Distinguir entre columnas según el tipo** de variable (numérica, categórica, etc.)
+3. Buscar **valores nulos** y **registros duplicados**.
+4. Calcular **estadísticos descriptivos**:
+    - Variables numéricas: *media*, *mediana*, *moda*, *cuartiles* y valores *máximo* y *mínimo*.
+    - Variables categóricas: número de *categorías diferentes*, el valor de las *más y menos frecuentes*, y sus *frecuencias asociadas*.
+5. Representar la **distribución** de los datos de la variable (*histograma* y *diagramas de cajas*).
+
+Para realizar todas estas tareas, vamos a necesitar los siguientes paquetes:
 
 ```{r message = FALSE, warning = FALSE}
 library(tidyverse)
@@ -6,29 +22,31 @@ library(skimr)
 library(reshape2)
 ```
 
-# Análisis Exploratorio de los Datos
-Primero, cargamos los datos y observamos las primeras filas:
+# Análisis Exploratorio
+Primero, cargamos los datos y observamos las primeras filas de las primeras cinco columnas:
 
 ```{r}
 df <- read.csv("cancer_gene_expression_dataset.csv")
-head(df)
+df |> select(1:6) |> head()
 ```
 
-Podemos prescindir de la columna `Patient_ID`, ya que no aporta información relevante (es el índice + 1).
+Cada variable representa el nivel de expresión de un gen concreto. Podemos prescindir de la columna `Patient_ID`, ya que no aporta información relevante (es el índice + 1).
 
 ```{r}
 df <- df %>% select(-Patient_ID)
-head(df)
+
+df |> select(1:5) |> head()
+
 ```
 
-## Estructura general
+## Estructura
 A continuación, comprobamos el tipo de los datos de cada variable:
 
 ```{r}
 df |> skim() |> summary()
 ```
 
-Tenemos 100 registros con 50 variables numéricas. Veamos algunos estadísticos descriptivos:
+Tenemos 100 registros con 50 variables numéricas. Veamos algunos estadísticos descriptivos de las primeras columnas:
 
 ```{r}
 df |> skim() |> yank("numeric") |> select(-c(complete_rate, hist))
@@ -46,7 +64,7 @@ Afortunadamente, no hay valores nulos ni registros duplicados. Además, todos lo
 ## Distribución
 Podemos visualizar la distribución de los datos de cada variable con histogramas:
 
-```{r fig.width = 12, fig.height = 10}
+```{r fig.width = 12, fig.height = 10, warning = FALSE, message = FALSE}
 df |> 
     pivot_longer(
         cols = everything(), 
@@ -76,20 +94,54 @@ df |>
 
 Se observa una distribución similar para todas las variables, aproximadamente bimodal. Unas pocas contienen valores anómalos. Por ello, antes de implementar el algoritmo de agrupación correspondiente, será necesario escalar los datos utilizando un estimador que sea robusto con los valores anómalos.
 
-## Multicolinealidad
-Para comprobar si hay variables colineales entre sí, podemos obtener la matriz de correlaciones, que calcula los coeficientes de correlación para cada par de variables posible, y representarla visualmente con un mapa de calor:
+Guardamos los datos:
 
-```{r fig.width = 12, fig.height = 8}
-corr_matrix <- cor(df) |> melt()
-
-ggplot(corr_matrix, aes(x = Var2, y = Var1, fill = value)) +
-  geom_tile(color = "white") +
-  scale_fill_gradient2(
-    low = "blue", mid = "white", high = "red",
-    midpoint = mean(corr_matrix$value),
-    limits = c(-1, 1)
-  ) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```{r}
+write.csv(df, "cancer_gene_expression_dataset_clean.csv", row.names = FALSE)
 ```
 
+
+# Análisis de Componentes Principales
+
+Como el objetivo de este trabajo es hacer una agrupación de los pacientes por la expresión de distintos genes, conviene realizar un análisis de componentes principales (PCA). Esta técnica reduce la dimensionalidad de los datos, haciendo posible juzgar visualmente si los datos se agrupan siguiendo algún patrón. Para llevar a cabo este análisis, cargamos los siguientes paquetes:
+
+```{r warning = FALSE, message = FALSE}
+library(factoextra)
+library(broom)
+```
+
+A continuación, implementamos el PCA y mostramos el valor de las componentes principales (PC) correspondientes a los primeros registros: 
+
+```{r}
+pca <- df |> prcomp(scale. = TRUE) # PCA
+
+pca_tidy <- pca |> tidy() |> # datos del PCA en forma de tabla
+    pivot_wider(
+        names_from = PC,
+        names_prefix = "PC",
+        values_from = value
+    ) |> 
+    select(-row)
+
+pca_tidy |> select(1:5) |> head()
+```
+
+Antes de juzgar visualmente si los datos se agrupan siguiendo algún patrón, es necesario saber si las dos primeras PCs son suficientes. Para ello, hacemos un biplot:
+
+```{r warning = FALSE}
+pca |> fviz_screeplot(addlabels = TRUE)
+```
+
+Las dos primeras PCs explican más del $80 %$ de la varianza de los datos, por lo que podemos considerarlas suficiente. Veamos ahora el biplot:
+
+```{r}
+pca |> fviz_pca_biplot(geom.ind = "point", geom.var = 0)+
+    labs(
+        x = "PC1",
+        y = "PC2",
+        title = "BIPLOT"
+    )+
+    geom_point(color = "blue")
+```
+
+Atendiendo a este gráfico, podemos ver cómo los datos parecen agruparse en tres clusters diferentes. Para profundizar en ello, a continuación vamos a agrupar los datos implementando el algoritmo *K-means*.
